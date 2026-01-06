@@ -12,3 +12,17 @@ coverage/
 .vscode/
 cdk.out/
 
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Docker
+*.tar
+docker-compose.override.yml
+
+# IDE
+*.swp
+*.swo
+*~
+
