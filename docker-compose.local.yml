@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: reportuser
+      POSTGRES_PASSWORD: reportpass
+      POSTGRES_DB: reportdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # 引数の順番を整理し、フラグを明確にします
+      test: ["CMD-SHELL", "pg_isready -d reportdb -U reportuser"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs
+      - DEBUG=1
+      - PERSISTENCE=1
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - API_URL=http://api:3001
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - postgres
+      - api
+
+  api:
+    build:
+      context: ./backend/api
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://reportuser:reportpass@postgres:5432/reportdb
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/report-queue
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - STORAGE_PATH=/app/storage
+    volumes:
+      - ./backend/api:/app
+      - /app/node_modules
+      - report_storage:/app/storage
+    depends_on:
+      - postgres
+      - localstack
+
+  worker:
+    build:
+      context: ./backend/worker
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      - DATABASE_URL=postgresql://reportuser:reportpass@postgres:5432/reportdb
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/report-queue
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - STORAGE_PATH=/app/storage
+    volumes:
+      - ./backend/worker:/app
+      - /app/node_modules
+      - report_storage:/app/storage
+    depends_on:
+      - postgres
+      - localstack
+      - api
+
+  worker-rust:
+    build:
+      context: ./backend/worker-rust
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      - DATABASE_URL=postgresql://reportuser:reportpass@postgres:5432/reportdb
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/report-queue
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - STORAGE_PATH=/app/storage
+    volumes:
+      - ./backend/worker-rust:/app
+      - report_storage:/app/storage
+    depends_on:
+      - postgres
+      - localstack
+      - api
+
+volumes:
+  postgres_data:
+  localstack_data:
+  report_storage:
